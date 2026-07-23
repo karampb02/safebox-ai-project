@@ -34,15 +34,19 @@ app.add_middleware(
 # Mount static files for the frontend
 
 
-# Get API key from environment variables
+# Get API keys from environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-if not OPENAI_API_KEY and not ANTHROPIC_API_KEY:
-    raise ValueError("Either OPENAI_API_KEY or ANTHROPIC_API_KEY must be set in the .env file")
-
-# Choose LLM provider based on available API key
-LLM_PROVIDER = "openai" if OPENAI_API_KEY else "anthropic"
+if GEMINI_API_KEY:
+    LLM_PROVIDER = "gemini"
+elif OPENAI_API_KEY:
+    LLM_PROVIDER = "openai"
+elif ANTHROPIC_API_KEY:
+    LLM_PROVIDER = "anthropic"
+else:
+    LLM_PROVIDER = None
 
 class URLAnalysisRequest(BaseModel):
     url: str
@@ -105,7 +109,27 @@ async def tier2_ai_analysis(url: str) -> AsyncGenerator[str, None]:
     payload = {}
     api_url = ""
 
-    if LLM_PROVIDER == "openai":
+    if not LLM_PROVIDER:
+        yield "SafeBox AI Warning: No AI API Key detected in environment variables. Please set GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY in your .env file."
+        return
+
+    if LLM_PROVIDER == "gemini":
+        if not GEMINI_API_KEY:
+            raise HTTPException(status_code=500, detail="Gemini API key not configured.")
+        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key={GEMINI_API_KEY}"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": f"You are a cybersecurity expert. Analyze the following URL for potential phishing threats, credential harvesting red flags, brand impersonation, and overall safety. Provide a detailed report, highlighting any suspicious elements: {url}"
+                        }
+                    ]
+                }
+            ]
+        }
+    elif LLM_PROVIDER == "openai":
         if not OPENAI_API_KEY:
             raise HTTPException(status_code=500, detail="OpenAI API key not configured.")
         api_url = "https://api.openai.com/v1/chat/completions"
@@ -142,7 +166,26 @@ async def tier2_ai_analysis(url: str) -> AsyncGenerator[str, None]:
                 response.raise_for_status()
                 async for chunk in response.aiter_bytes():
                     # Process chunks based on LLM provider
-                    if LLM_PROVIDER == "openai":
+                    if LLM_PROVIDER == "gemini":
+                        try:
+                            decoded_chunk = chunk.decode("utf-8")
+                            for line in decoded_chunk.splitlines():
+                                line = line.strip()
+                                if line.startswith("data: "):
+                                    json_str = line[6:].strip()
+                                    if not json_str:
+                                        continue
+                                    import json
+                                    data = json.loads(json_str)
+                                    candidates = data.get("candidates", [])
+                                    if candidates:
+                                        parts = candidates[0].get("content", {}).get("parts", [])
+                                        for p in parts:
+                                            if "text" in p:
+                                                yield p["text"]
+                        except Exception:
+                            continue
+                    elif LLM_PROVIDER == "openai":
                         # OpenAI sends JSON objects, need to parse and extract content
                         try:
                             decoded_chunk = chunk.decode("utf-8")
@@ -155,7 +198,7 @@ async def tier2_ai_analysis(url: str) -> AsyncGenerator[str, None]:
                                         content = data["choices"][0].get("delta", {}).get("content")
                                         if content:
                                             yield content
-                        except json.JSONDecodeError:
+                        except Exception:
                             # Handle incomplete JSON chunks
                             continue
                     elif LLM_PROVIDER == "anthropic":
@@ -167,9 +210,9 @@ async def tier2_ai_analysis(url: str) -> AsyncGenerator[str, None]:
                                     json_data = line[len("data: "):]
                                     import json
                                     data = json.loads(json_data)
-                                    if data["type"] == "content_block_delta":
+                                    if data.get("type") == "content_block_delta":
                                         yield data["delta"]["text"]
-                        except json.JSONDecodeError:
+                        except Exception:
                             continue
 
         except httpx.RequestError as e:
