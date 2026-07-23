@@ -72,7 +72,8 @@ async def tier1_fast_check(url: str) -> bool:
     # This is a very basic example. Real typosquatting detection is complex.
     common_brands = ["google.com", "microsoft.com", "apple.com", "amazon.com", "paypal.com"]
     for brand in common_brands:
-        if len(hostname) == len(brand) and sum(1 for a, b in zip(hostname, brand) if a != b) <= 2:
+        diff = sum(1 for a, b in zip(hostname, brand) if a != b)
+        if len(hostname) == len(brand) and 0 < diff <= 2:
             print(f"[Tier 1] Potential typosquatting detected for {brand}")
             return False
 
@@ -231,7 +232,8 @@ async def analyze_url(request: URLAnalysisRequest):
     # Tier 2: AI Analysis (streaming response)
     return StreamingResponse(tier2_ai_analysis(url), media_type="text/event-stream")
 
-app.mount("/", StaticFiles(directory="./static", html=True), name="static")
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
