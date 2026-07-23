@@ -1,14 +1,11 @@
 {
-  "builds": [
+  "installCommand": "echo 'No install needed'",
+  "buildCommand": "echo 'No build needed'",
+  "outputDirectory": "static",
+  "rewrites": [
     {
-      "src": "api/index.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "api/index.py"
+      "source": "/analyze",
+      "destination": "/api/index"
     }
   ]
 }

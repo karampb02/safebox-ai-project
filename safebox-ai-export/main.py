@@ -51,58 +51,45 @@ else:
 class URLAnalysisRequest(BaseModel):
     url: str
 
-async def tier1_fast_check(url: str) -> bool:
+async def tier1_fast_check(url: str) -> tuple[bool, str]:
     """Basic Python function to check URL structure for common typosquatting or suspicious domains."""
-    # This is a placeholder for a more robust check
-    # In a real-world scenario, this would involve:
-    # 1. Domain reputation lookups (e.g., Google Safe Browsing API, VirusTotal)
-    # 2. Typosquatting detection (e.g., Levenshtein distance against popular domains)
-    # 3. Heuristic analysis (e.g., excessive subdomains, unusual port numbers)
-    # 4. Blacklist/Whitelist checks
-
-    # Example: Basic checks for common phishing indicators
     from urllib.parse import urlparse
     parsed_url = urlparse(url)
     hostname = parsed_url.hostname
 
     if not hostname:
-        return False # Invalid URL structure
+        return False, "Invalid URL structure (could not parse hostname)."
 
-    # 1. Typosquatting/Homograph Attack (simplified check)
-    # This is a very basic example. Real typosquatting detection is complex.
+    # 1. Typosquatting/Homograph Attack
     common_brands = ["google.com", "microsoft.com", "apple.com", "amazon.com", "paypal.com"]
     for brand in common_brands:
         diff = sum(1 for a, b in zip(hostname, brand) if a != b)
         if len(hostname) == len(brand) and 0 < diff <= 2:
-            print(f"[Tier 1] Potential typosquatting detected for {brand}")
-            return False
+            return False, f"Potential typosquatting detected targeting brand domain '{brand}'."
 
-    # 2. Suspicious TLDs (Top-Level Domains)
+    # 2. Suspicious TLDs
     suspicious_tlds = [".xyz", ".top", ".loan", ".bid", ".win", ".gq", ".cf", ".ga", ".ml", ".tk", ".pw", ".cn"]
-    if any(hostname.endswith(tld) for tld in suspicious_tlds):
-        print(f"[Tier 1] Suspicious TLD detected: {hostname}")
-        return False
+    for tld in suspicious_tlds:
+        if hostname.endswith(tld):
+            return False, f"Suspicious Top-Level Domain ('{tld}') detected."
 
     # 3. IP address in hostname
     try:
         import ipaddress
         ipaddress.ip_address(hostname)
-        print(f"[Tier 1] IP address used as hostname: {hostname}")
-        return False # It's an IP address, often used in phishing
+        return False, f"Raw IP address used as hostname ({hostname}), commonly used in phishing attacks."
     except ValueError:
-        pass # Not an IP address, proceed
+        pass
 
-    # 4. Excessive Subdomains (heuristic for obfuscation)
-    if hostname.count('.') > 4: # e.g., very.long.subdomain.phishing.example.com
-        print(f"[Tier 1] Excessive subdomains detected: {hostname}")
-        return False
+    # 4. Excessive Subdomains
+    if hostname.count('.') > 4:
+        return False, f"Excessive subdomains detected ({hostname.count('.')} subdomains), indicating URL obfuscation."
 
     # 5. Punycode (homograph attacks)
     if "xn--" in hostname:
-        print(f"[Tier 1] Punycode detected: {hostname}")
-        return False
+        return False, "Punycode (Internationalized Domain Name) detected, potential homograph attack."
 
-    return True # Passed basic checks
+    return True, "Passed initial structural security heuristics."
 
 async def tier2_ai_analysis(url: str) -> AsyncGenerator[str, None]:
     """Integrates with an LLM via API to evaluate the URL for phishing patterns."""
@@ -111,13 +98,14 @@ async def tier2_ai_analysis(url: str) -> AsyncGenerator[str, None]:
     api_url = ""
 
     if not LLM_PROVIDER:
-        yield "SafeBox AI Warning: No AI API Key detected in environment variables. Please set GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY in your .env file."
+        yield "SafeBox AI Warning: No AI API Key detected in environment variables. Please set GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY in your environment variables."
         return
 
     if LLM_PROVIDER == "gemini":
         if not GEMINI_API_KEY:
-            raise HTTPException(status_code=500, detail="Gemini API key not configured.")
-        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key={GEMINI_API_KEY}"
+            yield "SafeBox AI Error: Gemini API key not configured."
+            return
+        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key={GEMINI_API_KEY}"
         headers = {"Content-Type": "application/json"}
         payload = {
             "contents": [
@@ -132,7 +120,8 @@ async def tier2_ai_analysis(url: str) -> AsyncGenerator[str, None]:
         }
     elif LLM_PROVIDER == "openai":
         if not OPENAI_API_KEY:
-            raise HTTPException(status_code=500, detail="OpenAI API key not configured.")
+            yield "SafeBox AI Error: OpenAI API key not configured."
+            return
         api_url = "https://api.openai.com/v1/chat/completions"
         headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
         payload = {
@@ -145,7 +134,8 @@ async def tier2_ai_analysis(url: str) -> AsyncGenerator[str, None]:
         }
     elif LLM_PROVIDER == "anthropic":
         if not ANTHROPIC_API_KEY:
-            raise HTTPException(status_code=500, detail="Anthropic API key not configured.")
+            yield "SafeBox AI Error: Anthropic API key not configured."
+            return
         api_url = "https://api.anthropic.com/v1/messages"
         headers = {
             "x-api-key": ANTHROPIC_API_KEY,
@@ -161,12 +151,14 @@ async def tier2_ai_analysis(url: str) -> AsyncGenerator[str, None]:
             "stream": True
         }
 
-    async with httpx.AsyncClient() as client:
-        try:
+    try:
+        async with httpx.AsyncClient() as client:
             async with client.stream("POST", api_url, headers=headers, json=payload, timeout=60.0) as response:
-                response.raise_for_status()
+                if response.status_code != 200:
+                    error_body = await response.aread()
+                    yield f"SafeBox AI API Notice (HTTP {response.status_code}): {error_body.decode('utf-8', errors='ignore')[:250]}. Please ensure a valid GEMINI_API_KEY or OPENAI_API_KEY is configured."
+                    return
                 async for chunk in response.aiter_bytes():
-                    # Process chunks based on LLM provider
                     if LLM_PROVIDER == "gemini":
                         try:
                             decoded_chunk = chunk.decode("utf-8")
@@ -187,7 +179,6 @@ async def tier2_ai_analysis(url: str) -> AsyncGenerator[str, None]:
                         except Exception:
                             continue
                     elif LLM_PROVIDER == "openai":
-                        # OpenAI sends JSON objects, need to parse and extract content
                         try:
                             decoded_chunk = chunk.decode("utf-8")
                             for line in decoded_chunk.splitlines():
@@ -200,10 +191,8 @@ async def tier2_ai_analysis(url: str) -> AsyncGenerator[str, None]:
                                         if content:
                                             yield content
                         except Exception:
-                            # Handle incomplete JSON chunks
                             continue
                     elif LLM_PROVIDER == "anthropic":
-                        # Anthropic sends JSON objects, need to parse and extract content
                         try:
                             decoded_chunk = chunk.decode("utf-8")
                             for line in decoded_chunk.splitlines():
@@ -215,19 +204,21 @@ async def tier2_ai_analysis(url: str) -> AsyncGenerator[str, None]:
                                         yield data["delta"]["text"]
                         except Exception:
                             continue
-
-        except httpx.RequestError as e:
-            raise HTTPException(status_code=500, detail=f"LLM API request failed: {e}")
-        except httpx.HTTPStatusError as e:
-            raise HTTPException(status_code=e.response.status_code, detail=f"LLM API returned an error: {e.response.text}")
+    except Exception as e:
+        yield f"SafeBox AI Connection Notice: Unable to reach AI service ({str(e)}). Please verify network and API key configuration."
 
 @app.post("/analyze")
+@app.post("/api/index")
 async def analyze_url(request: URLAnalysisRequest):
     url = request.url
 
     # Tier 1: Fast Check
-    if not await tier1_fast_check(url):
-        return StreamingResponse(content=iter(["SafeBox Web: Initial fast check identified this URL as potentially suspicious. Proceed with caution or avoid."]), media_type="text/event-stream")
+    is_safe, reason = await tier1_fast_check(url)
+    if not is_safe:
+        return StreamingResponse(
+            content=iter([f"SafeBox Security Alert (Tier 1 Fast Check):\n\n• Analysis Result: Identified as potentially suspicious\n• Triggered Reason: {reason}\n• Recommendation: Proceed with extreme caution or avoid visiting this domain."]),
+            media_type="text/event-stream"
+        )
 
     # Tier 2: AI Analysis (streaming response)
     return StreamingResponse(tier2_ai_analysis(url), media_type="text/event-stream")
