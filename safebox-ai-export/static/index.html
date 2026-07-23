@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SafeBox Web - URL Safety Analyzer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="logo">🔒 SafeBox Web</h1>
+                <p class="tagline">Analyze URLs for Phishing & Malicious Intent</p>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Input Section -->
+            <section class="input-section">
+                <div class="input-wrapper">
+                    <label for="url-input" class="input-label">Enter URL to Analyze</label>
+                    <div class="input-group">
+                        <input 
+                            type="url" 
+                            id="url-input" 
+                            class="url-input" 
+                            placeholder="https://example.com" 
+                            required
+                        >
+                        <button id="analyze-btn" class="analyze-btn">Analyze</button>
+                    </div>
+                    <p class="input-hint">Paste a URL to check for phishing threats, credential harvesting, and malicious intent.</p>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section class="results-section" id="results-section" style="display: none;">
+                <div class="results-container">
+                    <div class="results-header">
+                        <h2>Safety Analysis Report</h2>
+                        <button id="close-results-btn" class="close-btn">✕</button>
+                    </div>
+                    <div class="results-content" id="results-content">
+                        <!-- Results will be streamed here -->
+                    </div>
+                    <div class="results-footer">
+                        <p class="disclaimer">
+                            <strong>Disclaimer:</strong> This analysis is provided for informational purposes only. 
+                            Always exercise caution when visiting unfamiliar URLs. For critical security decisions, 
+                            consult with a cybersecurity professional.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Loading Indicator -->
+            <div class="loading-indicator" id="loading-indicator" style="display: none;">
+                <div class="spinner"></div>
+                <p>Analyzing URL...</p>
+            </div>
+
+            <!-- Error Message -->
+            <div class="error-message" id="error-message" style="display: none;">
+                <p id="error-text"></p>
+                <button class="error-close-btn" onclick="document.getElementById('error-message').style.display = 'none';">Dismiss</button>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; 2024 SafeBox Web. Cybersecurity Analysis Tool. All rights reserved.</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
